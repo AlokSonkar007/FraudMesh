@@ -29,5 +29,7 @@ def test_root_serves_clickable_dashboard():
         response = client.get("/")
     assert response.status_code == 200
     assert "FraudMesh" in response.text
-    assert "Run synthetic simulation" in response.text
+    assert "Run simulation" in response.text
+    assert "color-scheme:light" in response.text
+    assert "Fraud campaign" in response.text
     assert "/docs" in response.text
