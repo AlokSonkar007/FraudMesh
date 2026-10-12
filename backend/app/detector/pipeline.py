@@ -133,8 +133,9 @@ class DetectionPipeline:
                 for v in a.explanation.entities.get(etype, []):
                     self.rules.allow_entity(v, self.now_ts)
                     allowed.append(f"{etype}:{v}")
+        ttl_hours = self.rules.ttl_hours if self.rules is not None else 0
         log.info("analyst dismissed %s; allowlist(TTL=%dh) +%d", alert_id,
-                 self.rules.ttl_hours, len(allowed))
+                 ttl_hours, len(allowed))
         return {"ok": True, "allowlisted": allowed}
 
     def escalate_alert(self, alert_id: str) -> dict[str, Any]:
