@@ -22,3 +22,12 @@ def test_synthetic_demo_endpoint():
         alerts = client.get("/alerts")
         assert alerts.status_code == 200
         assert isinstance(alerts.json()["alerts"], list)
+
+
+def test_root_serves_clickable_dashboard():
+    with TestClient(app) as client:
+        response = client.get("/")
+    assert response.status_code == 200
+    assert "FraudMesh" in response.text
+    assert "Run synthetic simulation" in response.text
+    assert "/docs" in response.text
