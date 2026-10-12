@@ -1,0 +1,108 @@
+# FraudMesh default configuration. Every detector threshold/weight lives here.
+# Tuned on TUNE seeds only (see eval section). Values are documented in README.
+
+simulation:
+  seed: 7
+  start_epoch: 1700000000          # simulated clock base (unix seconds)
+  speed: 600                       # simulated seconds per real second in live mode
+  noise_ratio: 8                   # benign events per scam event
+  campaigns_per_run: 4
+  victims_min: 2
+  victims_max: 5
+  inter_arrival_minutes: [3, 25]   # benign background event spacing range
+  evasion:                         # flags consumed by the generator
+    delayed_payment: false         # push payment hours->days after last pressure stage
+    channel_switching: true        # randomize channel choice within a stage
+    rotated_identifiers: false     # fresh device+actor id per victim stage
+    low_volume_single_victim: false
+    reuse_legitimate: false        # scam reuses a legit domain/payee
+
+window:
+  sliding_hours: 72                # correlation window (simulated time)
+  prune_minutes: 15
+
+reputation:                        # Layer-1 synthetic blocklists / allowlists
+  blocked_domains: ["secure-kyc-verify.example", "refund-helpdesk.example", "bank-update-portal.example"]
+  blocked_vpAs: ["fakepayee@okaxisbank", "urgentrefund@ybl", "mulewallet@apl"]
+  blocked_actors: []               # filled at runtime by analyst confirmations
+  legit_domains: ["notify.bankalert.example", "cdn.paytmexample", "help.bankcare.example"]
+  legit_vpAs: ["cityrent@okhdfcbank", "tuition.univ@ybl", "popularstore@apl"]
+
+anomaly:
+  contamination: 0.05
+  train_on: tune_benign            # IsolationForest fit on BENIGN events of TUNE seeds only
+  n_estimators: 100
+
+graph:
+  type_weight:                     # w = type_weight * exp(-dt/tau) * idf(entity)
+    actor: 1.0
+    target: 1.0
+    device: 1.2
+    url_domain: 1.1
+    payee_vpa: 1.4
+  tau_minutes:                     # per entity-type time decay constant
+    actor: 360
+    target: 480
+    device: 240
+    url_domain: 720
+    payee_vpa: 960
+  w_min: 0.05                      # drop edges below this weight
+  max_component: 25                # Louvain-split components larger than this
+  louvain_resolution: 1.0
+
+stages:                            # stage assignment from text_category / channel / amount
+  contact: [benign_alert, authority_notice, kyc_update, refund_offer, general_advisory]
+  pressure: [urgency_threat, penalty_threat, account_lock_warning]
+  instruction: [payment_instruction, otp_request, remote_access_prompt, link_click]
+  payment: upi_debit
+
+scoring:
+  likelihood_weights: {a1: 0.45, a2: 0.30, a3: 0.25}   # stage chain, top-3 anomaly mean, rule-hit ratio
+  confidence_weights: {b1: 0.5, b2: 0.25, b3: 0.25}    # independent signals, channels, targets
+  n_sig: 4                         # independent_signals saturation count
+  distinct_channels_cap: 3
+  distinct_targets_k: 3
+  impact_cap: 200000               # INR; impact = min(1, log1p(targets*median_amt)/log1p(cap))
+  novelty_reference_library:       # known typology signatures (stage types, channels, text_categories)
+    - name: authority_impersonation
+      stages: [contact, pressure, instruction, payment]
+      channels: [call, sms, app]
+      categories: [authority_notice, urgency_threat, payment_instruction]
+    - name: refund_kyc_lure
+      stages: [contact, instruction, payment]
+      channels: [sms, app]
+      categories: [refund_offer, kyc_update, link_click, payment_instruction]
+    - name: mule_fan_in
+      stages: [instruction, payment]
+      channels: [upi, sms]
+      categories: [payment_instruction]
+    - name: generic_phishing
+      stages: [contact, instruction]
+      channels: [sms]
+      categories: [link_click, payment_instruction]
+
+alert:
+  n_min: 3                         # required independent_signals
+  theta_c: 0.45                    # confidence threshold (tuned on TUNE)
+  theta_l: 0.42                    # likelihood threshold (tuned on TUNE)
+  require_multi_channel: true      # distinct_channels >= 2
+  dedupe_ttl_hours: 48             # allowlist TTL set by analyst dismissals
+
+baseline:
+  event_flag_threshold: 0.5        # classifier prob threshold
+  model: logistic_regression       # trained on labeled TUNE events (benign/scam labels)
+
+eval:
+  tune_seeds: [101, 102, 103, 104, 105]
+  test_seeds: [201, 202, 203, 204, 205, 206, 207, 208, 209, 210]
+  campaign_coverage_min: 0.5       # detection: alert cluster covers >=50% of campaign events
+  campaign_purity_min: 0.70        # ...with purity >=70%
+  target_alert_precision: 0.8      # feedback-loop retuning threshold target
+  feedback_min_labels: 10          # labels required before recomputing thresholds
+  evasions: [none, delayed_payment, channel_switching, rotated_identifiers, low_volume_single_victim, reuse_legitimate]
+
+llm:                              # optional P2 layer, off by default
+  enabled: false                  # or env FRAUDMESH_LLM=1
+  provider: bedrock               # AWS is swappable, never required
+  region_env: AWS_REGION
+  model_id_env: FRAUDMESH_NOVA_MODEL_ID
