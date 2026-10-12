@@ -1,0 +1,23 @@
+name: FraudMesh smoke tests
+
+on:
+  push:
+    branches: [fraudmesh-white-theme-5bc57]
+  pull_request:
+    branches: [fraudmesh-white-theme-5bc57]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Run smoke tests
+        run: python -m pytest -q
