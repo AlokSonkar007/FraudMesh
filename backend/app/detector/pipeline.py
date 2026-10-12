@@ -1,8 +1,8 @@
-"""Incremental detection pipeline: layers 1-3 + alert lifecycle.
+"""Detection pipeline: layers 1-3 + alert lifecycle.
 
-Consumes events in timestamp order. Every `recompute_every` events (and after each
-event that changes a component), re-scores current graph components and updates the
-alert set. Supports layer ablation flags for the evaluation harness.
+For the small synthetic prototype, active graph components are re-scored after every
+event. This favors correctness and reproducibility over incremental throughput.
+Supports layer ablation flags for the evaluation harness.
 """
 from __future__ import annotations
 
@@ -56,18 +56,14 @@ class DetectionPipeline:
 
         if not self.graph:
             return []
-        # affected components BEFORE insertion (incremental recompute scope)
-        touched = set()
-        for etype, val in self._event_entity_keys(event):
-            for other in list(self.graph.entity_index.get((etype, val), [])):
-                cid = self.graph.comp_id_of(other)
-                if cid is not None:
-                    touched.add(cid)
+        # For the prototype, correctness beats premature incremental optimization.
+        # Re-score all active components after every event so a new link can activate
+        # a component even if its previously isolated events had no component IDs.
         self.graph.add_event(event)
         if self.now_ts - getattr(self, "_last_prune", 0) > self.cfg["window"]["prune_minutes"] * 60:
             self.graph.prune(self.now_ts, self.window_hours)
             self._last_prune = self.now_ts
-        return self.recompute(touched)
+        return self.recompute(None)
 
     @staticmethod
     def _event_entity_keys(e: Event) -> list[tuple[str, str]]:
@@ -118,7 +114,7 @@ class DetectionPipeline:
         a.feedback = "confirm"
         added = []
         for etype, vals in a.explanation.entities.items():
-            if etype == "actor":
+            if etype == "actor" and self.rules is not None:
                 for v in vals:
                     self.rules.block_actor(v)
                     added.append(f"actor:{v}")
@@ -132,10 +128,11 @@ class DetectionPipeline:
         a.state = "dismissed"
         a.feedback = "dismiss"
         allowed = []
-        for etype in ("payee_vpa", "url_domain"):
-            for v in a.explanation.entities.get(etype, []):
-                self.rules.allow_entity(v, self.now_ts)
-                allowed.append(f"{etype}:{v}")
+        if self.rules is not None:
+            for etype in ("payee_vpa", "url_domain"):
+                for v in a.explanation.entities.get(etype, []):
+                    self.rules.allow_entity(v, self.now_ts)
+                    allowed.append(f"{etype}:{v}")
         log.info("analyst dismissed %s; allowlist(TTL=%dh) +%d", alert_id,
                  self.rules.ttl_hours, len(allowed))
         return {"ok": True, "allowlisted": allowed}
